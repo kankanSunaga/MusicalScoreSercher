@@ -51,7 +51,8 @@ func RemoveBlankStrings(str string) string {
 }
 
 func GetPrice(str string) int {
-	noMark := strings.Replace(str, "¥", "", 1)
+	noYen := strings.Replace(str, "¥", "", 1)
+	noMark := strings.Replace(noYen, "円", "", 1)
 	priceStr := RemoveBlankStrings(noMark)
 	price, _ := strconv.Atoi(priceStr)
 	return price
