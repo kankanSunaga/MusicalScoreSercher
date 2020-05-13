@@ -24,12 +24,11 @@ type BasicInfo struct {
 	Composer    string
 	Price       int
 	Url         string
+	Instrument  string
 }
 
 func (api *ApiClientBase) Get() *goquery.Document {
 	res, _ := http.Get(api.Url)
-	defer res.Body.Close()
-
 	reader := changeTextCode(res)
 	doc, _ := goquery.NewDocumentFromReader(reader)
 	return doc
@@ -64,4 +63,14 @@ func WhichInstrumentType(instrument string) string {
 		itmType = "Saxophone"
 	}
 	return itmType
+}
+
+func Instruments() []string {
+	slice := []string{
+		"sopranoSaxophone",
+		"altoSaxophone",
+		"tenorSaxophone",
+		"baritoneSaxophone",
+	}
+	return slice
 }
