@@ -1,6 +1,12 @@
 package Elise
 
 import (
+	"encoding/csv"
+	"fmt"
+	"log"
+	"os"
+	"strconv"
+
 	Common "../common"
 	"github.com/PuerkitoBio/goquery"
 )
@@ -18,45 +24,52 @@ type Elise struct {
 	Difficulty string
 }
 
-func GetInfo(instrument string, music string) []Elise {
-	eliseClient := initEliseClient(instrument, music)
-	doc := eliseClient.Get()
-	musicTable := getEliseTable(doc)
-	return *getTableInfo(musicTable)
+func Main() {
+	fmt.Println("start")
+	insts := Common.Instruments()
+	for _, installment := range insts {
+		GetInfo(installment)
+	}
 }
 
-func initEliseClient(instrument string, music string) *Common.ApiClientBase {
+func GetInfo(instrument string) {
+	eliseClient := initEliseClient(instrument)
+	doc := eliseClient.Get()
+	musicTable := getEliseTable(doc)
+	getTableInfo(musicTable, instrument)
+}
+
+func initEliseClient(instrument string) *Common.ApiClientBase {
 	elc := eliseClient{}
 	var acb *Common.ApiClientBase
 	acb = &Common.ApiClientBase{
 		ServiceName: elise,
 	}
 	elc.ApiClientBase = *acb
-	elc.setUrl(instrument, music)
+	elc.setUrl(instrument)
 	return &elc.ApiClientBase
 
 }
 
-func (pmc *eliseClient) setUrl(instrument string, music string) {
+func (eli *eliseClient) setUrl(instrument string) {
 	var url string
 	switch Common.WhichInstrumentType(instrument) {
 	case "Saxophone":
-		url = setSaxUrl(instrument, music)
+		url = setSaxUrl(instrument)
 	default:
 		url = eliseUrlBase
 	}
-	pmc.ApiClientBase.Url = url
+	eli.ApiClientBase.Url = url
 }
 
-func setSaxUrl(instrument string, music string) string {
+func setSaxUrl(instrument string) string {
 	saxType := map[string]string{
 		"sopranoSaxophone":  "&F_GENRE1=27",
 		"altoSaxophone":     "&F_GENRE1=28",
 		"tenorSaxophone":    "&F_GENRE1=29",
 		"baritoneSaxophone": "&F_GENRE1=30",
 	}
-	music = "&F_KEYWORD=" + music
-	return eliseUrlBase + music + saxType[instrument]
+	return eliseUrlBase + saxType[instrument]
 }
 
 func getEliseTable(gd *goquery.Document) *goquery.Selection {
@@ -66,26 +79,26 @@ func getEliseTable(gd *goquery.Document) *goquery.Selection {
 	return table
 }
 
-func initElise() *Elise {
+func initElise(instrument string) *Elise {
 	eli := Elise{}
 	var cbi *Common.BasicInfo
 	cbi = &Common.BasicInfo{
 		ServiceName: elise,
+		Instrument:  instrument,
 	}
 	eli.BasicInfo = cbi
 	return &eli
 }
 
-func getTableInfo(gd *goquery.Selection) *[]Elise {
-	var respondArray []Elise
+func getTableInfo(gd *goquery.Selection, instrument string) {
 	gd.Find(".s_result_content").EachWithBreak(func(i int, tr *goquery.Selection) bool {
-		eli := initElise()
+		eli := initElise(instrument)
 		eli.setBasicInfo(tr)
 		eli.setEliseInfo(tr)
-		respondArray = append(respondArray, *eli)
+		eli.Output()
 		return true
 	})
-	return &respondArray
+	return
 }
 
 func (eli *Elise) setBasicInfo(gs *goquery.Selection) *Elise {
@@ -101,4 +114,25 @@ func (eli *Elise) setBasicInfo(gs *goquery.Selection) *Elise {
 func (pms *Elise) setEliseInfo(gs *goquery.Selection) *Elise {
 	pms.Difficulty = Common.RemoveBlankStrings(gs.Find(".inst").Text())
 	return pms
+}
+
+func (eli *Elise) Output() {
+	file, err := os.OpenFile("test.csv", os.O_WRONLY|os.O_APPEND, 0666)
+	if err != nil {
+		//エラー処理
+		log.Fatal(err)
+	}
+	defer file.Close()
+	writer := csv.NewWriter(file)
+	var s = []string{
+		eli.BasicInfo.ServiceName,
+		eli.BasicInfo.MusicName,
+		eli.BasicInfo.Composer,
+		strconv.Itoa(eli.BasicInfo.Price),
+		eli.BasicInfo.Url,
+		eli.BasicInfo.Instrument,
+		eli.Difficulty,
+	}
+	writer.Write(s)
+	writer.Flush()
 }
