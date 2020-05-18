@@ -27,6 +27,7 @@ type BasicInfo struct {
 	Price       int
 	Url         string
 	Instrument  string
+	Id          string
 }
 
 func (api *ApiClientBase) Get() *goquery.Document {
@@ -38,6 +39,7 @@ func (api *ApiClientBase) Get() *goquery.Document {
 	}
 	ua := getUserAgent()
 	req.Header.Set("User-Agent", ua)
+	req.Header.Add("Accept-Language", "ja,en-US;q=0.9,en;q=0.8")
 
 	resp, err := client.Do(req)
 	if err != nil {

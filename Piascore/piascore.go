@@ -1,144 +1,99 @@
 package Piascore
 
 import (
+	"bytes"
 	"encoding/csv"
 	"fmt"
+	"io"
+	"io/ioutil"
 	"log"
+	"math/rand"
+	"net/http"
 	"os"
 	"strconv"
 	"strings"
 
-	Common "../common"
+	"github.com/saintfish/chardet"
+	"golang.org/x/net/html/charset"
+
 	"github.com/PuerkitoBio/goquery"
 )
 
 const piascore string = "Piascore"
 const piascoreDomain = "https://store.piascore.com"
-const piascoreUrlBase string = piascoreDomain + "/search?"
-
-type piascoreClient struct {
-	Common.ApiClientBase
-}
 
 type Piascore struct {
-	*Common.BasicInfo
-	Difficulty string
-}
-
-func GetInfo(instrument string, music string) []Piascore {
-	piascoreClient := initPiascoreClient(instrument, music)
-	doc := piascoreClient.Get()
-	return *getTableInfo(doc, instrument)
-}
-
-func initPiascoreClient(instrument string, music string) *Common.ApiClientBase {
-	psc := piascoreClient{}
-	var acb *Common.ApiClientBase
-	acb = &Common.ApiClientBase{
-		ServiceName: piascore,
-	}
-	psc.ApiClientBase = *acb
-	psc.setUrl(instrument, music)
-	return &psc.ApiClientBase
-
-}
-
-func (pmc *piascoreClient) setUrl(instrument string, music string) {
-	var url string
-	switch Common.WhichInstrumentType(instrument) {
-	case "Saxophone":
-		url = setSaxUrl(instrument, music)
-	default:
-		url = piascoreUrlBase
-	}
-	pmc.ApiClientBase.Url = url
-}
-
-func setSaxUrl(instrument string, music string) string {
-	saxType := map[string]string{
-		"sopranoSaxophone":  "i=326&",
-		"altoSaxophone":     "i=320&",
-		"tenorSaxophone":    "i=322&",
-		"baritoneSaxophone": "i=324&",
-	}
-	music = "n=" + music
-	return piascoreUrlBase + saxType[instrument] + music
+	Difficulty  string
+	ServiceName string
+	MusicName   string
+	Composer    string
+	Price       int
+	Url         string
+	Instrument  string
+	Id          string
 }
 
 func initPiascore(instrument string) *Piascore {
-	psc := Piascore{}
-	var cbi *Common.BasicInfo
-	cbi = &Common.BasicInfo{
+	psc := Piascore{
 		ServiceName: piascore,
 		Instrument:  instrument,
+		Url:         instalmentUrl(instrument),
 	}
-	psc.BasicInfo = cbi
 	return &psc
 }
 
-func getTableInfo(gd *goquery.Document, instrument string) *[]Piascore {
-	var respondArray []Piascore
+func (psc *Piascore) setInfo(gd *goquery.Document) {
+	pscs := make([]Piascore, 0)
+
 	gd.Find(".displayed-score").EachWithBreak(func(i int, div *goquery.Selection) bool {
-		psc := initPiascore(instrument)
-		psc.setPiascoreInfo(div)
-		psc.setBasicInfo(div)
-		psc.Output()
+		dp := psc.goToDetailPAge(div)
+		psc.setInfoInner(dp)
 		return true
 	})
-	return &respondArray
+	output(pscs)
 }
 
-func (psc *Piascore) setBasicInfo(gs *goquery.Selection) *Piascore {
-	path, _ := gs.Find(".top-score-item").Attr("href")
-	url := piascoreDomain + path
-	psc.BasicInfo.Url = url
-	psc.BasicInfo.Composer = "-"
+func (psc *Piascore) setInfoInner(gs *goquery.Document) *Piascore {
+	psc.setId()
+	psc.Composer = gs.Find(".score-persons").Children().First().Find(".person_name").Text()
 	psc.setPrice(gs)
-	gs.Find(".score_list_inst").Remove()
-	gs.Find(".score_list_price").Remove()
-	psc.BasicInfo.MusicName = gs.Find(".score_list_title").Text()
+	psc.MusicName = gs.Find(".score_title").Text()
+	psc.Difficulty = gs.Find(".score-breadcrumb").Last().Text()
 	return psc
 }
 
-func (psc *Piascore) setPiascoreInfo(gs *goquery.Selection) *Piascore {
-	psc.Difficulty = Common.RemoveBlankStrings(gs.Find(".score_list_info").Find(".score_list_inst").Text())
-	return psc
-}
-
-func (psc *Piascore) setPrice(gs *goquery.Selection) {
-	//priceがなぜか"¥100¥100"と言う謎の形で入ってくるため、仕方なくスプリット
-	price := gs.Find(".score_list_price").Text()
-	if price == "無料無料" {
-		psc.BasicInfo.Price = 0
+func (psc *Piascore) setPrice(gs *goquery.Document) {
+	price := gs.Find(".score_price").Text()
+	if price == "" {
+		psc.Price = 0
 		return
 	}
-	prices := strings.Split(price, "¥")
-	pri, _ := strconv.Atoi(prices[1])
-	psc.BasicInfo.Price = pri
+	price = strings.Replace(price, "¥", "", -1)
+	price = strings.Replace(price, "（税込）", "", -1)
+	price = strings.Replace(price, ",", "", -1)
+	pri, _ := strconv.Atoi(price)
+	psc.Price = pri
 
 }
 
 func Main() {
 	fmt.Println("start")
-	insts := Common.Instruments()
-	for _, installment := range insts {
+	for _, installment := range instruments() {
+		fmt.Println(installment)
 		GetAllMusicScore(installment)
 	}
+	fmt.Println("end")
 }
 
 func GetAllMusicScore(instrument string) {
-	client := setUrl(instrument)
-	doc := client.Get()
-	getAll(doc, client, client.Url, instrument)
+	psc := initPiascore(instrument)
+	doc := psc.Get()
+	psc.bringAllData(doc)
 }
 
-func setUrl(instrument string) *Common.ApiClientBase {
+func (psc *Piascore) setUrl(instrument string) {
 	url := instalmentUrl(instrument)
-	var cab *Common.ApiClientBase
-	cab = &Common.ApiClientBase{
-		Url: url,
-	}
-	return cab
+	psc.Url = url
 }
 
 func instalmentUrl(instrument string) string {
@@ -151,51 +106,128 @@ func instalmentUrl(instrument string) string {
 	return instalments[instrument]
 }
 
-func getAll(doc *goquery.Document, client *Common.ApiClientBase, url string, instrument string) {
-	fmt.Println("getAll start")
+func (psc *Piascore) bringAllData(doc *goquery.Document) {
 	path, exist := doc.Find(".pagination").Children().Last().Children().Attr("href")
 	count := 1
 	if exist {
-		count = getMaxCount(path)
+		count = getMaxPage(path)
 	}
 	for i := 1; i <= count; i++ {
-		client.Url = url + "page=" + strconv.Itoa(i)
-		fmt.Println(client.Url)
-		doc = client.Get()
-		getTableInfo(doc, instrument)
-
+		psc.Url = instalmentUrl(psc.Instrument) + "page=" + strconv.Itoa(i)
+		fmt.Println(psc.Url)
+		doc = psc.Get()
+		psc.setInfo(doc)
 	}
-	fmt.Println("getAll end")
 }
 
-func (psc *Piascore) Output() {
+func output(pscs []Piascore) {
 	file, err := os.OpenFile("test.csv", os.O_WRONLY|os.O_APPEND, 0666)
 	if err != nil {
 		//エラー処理
 		log.Fatal(err)
 	}
 	defer file.Close()
-	writer := csv.NewWriter(file)
-	var s = []string{
-		psc.BasicInfo.ServiceName,
-		psc.BasicInfo.MusicName,
-		psc.BasicInfo.Composer,
-		strconv.Itoa(psc.BasicInfo.Price),
-		psc.BasicInfo.Url,
-		psc.BasicInfo.Instrument,
-		psc.Difficulty,
+	for _, psc := range pscs {
+		writer := csv.NewWriter(file)
+		var s = []string{
+			psc.ServiceName,
+			psc.MusicName,
+			psc.Composer,
+			strconv.Itoa(psc.Price),
+			psc.Url,
+			psc.Instrument,
+			psc.Difficulty,
+			psc.Id,
+		}
+		writer.Write(s)
+		writer.Flush()
 	}
-	writer.Write(s)
-	writer.Flush()
 }
 
-func getMaxCount(path string) int {
+func getMaxPage(path string) int {
 	pages := strings.Split(path, "page=")
-	fmt.Println(pages[1])
 	c := pages[1]
 	count := 1
 	if c != "" {
 		count, _ = strconv.Atoi(c)
 	}
 	return count
+}
+
+func (psc *Piascore) goToDetailPAge(div *goquery.Selection) (gs *goquery.Document) {
+	path, _ := div.Find(".top-score-item").Attr("href")
+	psc.Url = piascoreDomain + path
+	gs = psc.Get()
+	return gs
+
+}
+
+func (psc *Piascore) setId() {
+	slice := strings.Split(psc.Url, "/")
+	psc.Id = slice[len(slice)-1]
+}
+
+func (psc *Piascore) Get() *goquery.Document {
+	client := &http.Client{}
+
+	req, err := http.NewRequest("GET", psc.Url, nil)
+	if err != nil {
+		log.Fatalln(err)
+	}
+	ua := getUserAgent()
+	req.Header.Set("User-Agent", ua)
+	req.Header.Add("Accept-Language", "ja,en-US;q=0.9,en;q=0.8")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Fatalln(err)
+	}
+
+	defer resp.Body.Close()
+
+	reader := changeTextCode(resp)
+	doc, _ := goquery.NewDocumentFromReader(reader)
+	return doc
+}
+
+func getUserAgent() string {
+	slice := []string{
+		"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_13_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/69.0.3497.100 Safari/537.36",
+		"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_13_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/70.0.3538.77 Safari/537.36",
+		"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_13_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/77.0.3864.0 Safari/537.36",
+		"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/69.0.3497.100",
+		"Mozilla/5.0 (Macintosh; Intel Mac OS X 10.13; rv:62.0) Gecko/20100101 Firefox/62.0",
+		"Mozilla/5.0 (Macintosh; Intel Mac OS X 10.13; rv:67.0) Gecko/20100101 Firefox/67.0",
+		"Mozilla/5.0 (Macintosh; Intel Mac OS X 10.13; rv:68.0) Gecko/20100101 Firefox/68.0",
+		"Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:61.0) Gecko/20100101 Firefox/61.0",
+		"Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:62.0) Gecko/20100101 Firefox/62.0",
+		"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/64.0.3282.140 Safari/537.36 Edge/17.17134",
+		"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_13_6) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/12.0 Safari/605.1.15",
+		"Mozilla/5.0 (iPhone; CPU iPhone OS 12_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/12.0 Mobile/15E148 Safari/604.1",
+		"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_13_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/69.0.3497.100 Safari/537.36",
+		"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_13_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/75.0.3770.100 Safari/537.36",
+		"Mozilla/5.0 (iPhone; CPU iPhone OS 12_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) FxiOS/1.6.5b18.09.26.16 Mobile/16A366 Safari/605.1.15 _id/000002",
+	}
+	i := rand.Intn(15)
+	return slice[i]
+}
+
+func changeTextCode(res *http.Response) io.Reader {
+	buf, _ := ioutil.ReadAll(res.Body)
+
+	det := chardet.NewTextDetector()
+	detRslt, _ := det.DetectBest(buf)
+	bReader := bytes.NewReader(buf)
+	reader, _ := charset.NewReaderLabel(detRslt.Charset, bReader)
+	return reader
+}
+
+func instruments() []string {
+	slice := []string{
+		"sopranoSaxophone",
+		"altoSaxophone",
+		"tenorSaxophone",
+		"baritoneSaxophone",
+	}
+	return slice
 }

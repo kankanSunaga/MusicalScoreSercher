@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"strconv"
+	"strings"
 
 	Common "../common"
 	"github.com/PuerkitoBio/goquery"
@@ -105,6 +106,7 @@ func (eli *Elise) setBasicInfo(gs *goquery.Selection) *Elise {
 	path, _ := gs.Find(".title").Find("a").Attr("href")
 	url := eliseDomain + path
 	eli.BasicInfo.Url = url
+	eli.BasicInfo.Id = getId(path)
 	eli.BasicInfo.MusicName = gs.Find(".title").Text()
 	eli.BasicInfo.Composer = gs.Find(".artist").Text()
 	eli.BasicInfo.Price = Common.GetPrice(gs.Find(".costcv").Text())
@@ -132,7 +134,14 @@ func (eli *Elise) Output() {
 		eli.BasicInfo.Url,
 		eli.BasicInfo.Instrument,
 		eli.Difficulty,
+		eli.BasicInfo.Id,
 	}
 	writer.Write(s)
 	writer.Flush()
+}
+
+func getId(path string) string {
+	path = strings.TrimRight(path, "/")
+	slice := strings.Split(path, "/")
+	return slice[len(slice)-1]
 }

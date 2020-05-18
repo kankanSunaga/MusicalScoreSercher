@@ -4,13 +4,14 @@ import (
 	"fmt"
 	"time"
 
-	"./Elise"
-	//"./Piascore"
+	//"./Elise"
+	"./Piascore"
 	//PrintMusicalScore "./PrintMusicScore"
 )
 
 func main() {
 	start := time.Now()
+
 	//returnMap := make(map[string]interface{})
 	//returnMap["PrintMusicScore"] = PrintMusicalScore.GetInfo("tenorSaxophone", "ルパン")
 	//returnMap["Piascore"] = Piascore.GetInfo("tenorSaxophone", "Pretender")
@@ -18,8 +19,8 @@ func main() {
 	//json, _ := json.Marshal(returnMap)
 	//fmt.Println(string(json))
 	//PrintMusicalScore.Main()
-	Elise.Main()
-	//Piascore.Main()
+	//Elise.Main()
+	Piascore.Main()
 	end := time.Now()
 	fmt.Println("%f秒\n", (end.Sub(start)).Seconds())
 }

@@ -93,6 +93,7 @@ func (pms *PrintMusicScore) setInfo(gs *goquery.Selection) *PrintMusicScore {
 	pms.BasicInfo.Composer = musicAndComposer[1]
 	pms.BasicInfo.Price = Common.GetPrice(gs.Find(".price").Text())
 	pms.Difficulty = Common.RemoveBlankStrings(gs.Find(".status").Text())
+	pms.BasicInfo.Id = getId(path)
 	pms.Output()
 	return pms
 }
@@ -173,7 +174,14 @@ func (pms *PrintMusicScore) Output() {
 		pms.BasicInfo.Url,
 		pms.BasicInfo.Instrument,
 		pms.Difficulty,
+		pms.BasicInfo.Id,
 	}
 	writer.Write(s)
 	writer.Flush()
+}
+
+func getId(path string) string {
+	path = strings.TrimRight(path, "/")
+	slice := strings.Split(path, "/")
+	return slice[len(slice)-1]
 }
