@@ -42,15 +42,18 @@ func initPiascore(instrument string) *Piascore {
 	return &psc
 }
 
-func (psc *Piascore) setInfo(gd *goquery.Document) {
+func (psc *Piascore) setInfo(gd *goquery.Document) *[]Piascore {
 	pscs := make([]Piascore, 0)
 
 	gd.Find(".displayed-score").EachWithBreak(func(i int, div *goquery.Selection) bool {
 		dp := psc.goToDetailPAge(div)
 		psc.setInfoInner(dp)
+		pscs = append(pscs, *psc)
 		return true
-	})
-	output(pscs)
+	}
+	var cbi *[]Piascore
+	cbi = &pscs
+　	return cbi
 }
 
 func (psc *Piascore) setInfoInner(gs *goquery.Document) *Piascore {
@@ -112,15 +115,17 @@ func (psc *Piascore) bringAllData(doc *goquery.Document) {
 	if exist {
 		count = getMaxPage(path)
 	}
+	var pscs *[]Piascore
 	for i := 1; i <= count; i++ {
 		psc.Url = instalmentUrl(psc.Instrument) + "page=" + strconv.Itoa(i)
 		fmt.Println(psc.Url)
 		doc = psc.Get()
-		psc.setInfo(doc)
+		pscs = append(pscs, psc.setInfo(doc))
 	}
+	output(pscs)
 }
 
-func output(pscs []Piascore) {
+func output(pscs *[]Piascore) {
 	file, err := os.OpenFile("test.csv", os.O_WRONLY|os.O_APPEND, 0666)
 	if err != nil {
 		//エラー処理
