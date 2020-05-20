@@ -1,12 +1,20 @@
 package PrintMusicalScore
 
 import (
+	"bytes"
 	"encoding/csv"
 	"fmt"
+	"io"
+	"io/ioutil"
 	"log"
+	"math/rand"
+	"net/http"
 	"os"
 	"strconv"
 	"strings"
+
+	"github.com/saintfish/chardet"
+	"golang.org/x/net/html/charset"
 
 	Common "../common"
 	"github.com/PuerkitoBio/goquery"
@@ -14,113 +22,67 @@ import (
 
 const printMusicScore string = "ぷりんと楽譜"
 const printMusicScoreDomain = "https://www.print-gakufu.com"
-const printMusicScoreUrlBase string = printMusicScoreDomain + "/search/result/song__"
-const saxophoneUrl string = "__is_part___inst__brass-"
-
-type printMusicScoreClient struct {
-	Common.ApiClientBase
-}
 
 type PrintMusicScore struct {
-	*Common.BasicInfo
-	Difficulty string
-}
-
-//func GetInfo(instrument string, music string) []PrintMusicScore {
-//	printMusicScoreClient := initPrintMusicScoreClient(instrument, music)
-//	doc := printMusicScoreClient.Get()
-//	musicTable := GetPrintMusicScoreTable(doc)
-//	return *getTableInfo(musicTable)
-//}
-//
-//func initPrintMusicScoreClient(instrument string, music string) *Common.ApiClientBase {
-//	pmc := printMusicScoreClient{}
-//	var acb *Common.ApiClientBase
-//	acb = &Common.ApiClientBase{
-//		ServiceName: printMusicScore,
-//	}
-//	pmc.ApiClientBase = *acb
-//	pmc = setUrl(instrument, music)
-//	return &pmc.ApiClientBase
-//
-//}
-
-func setSaxUrl(instrument string, music string) string {
-	saxType := map[string]string{
-		"sopranoSaxophone":  "ss",
-		"altoSaxophone":     "as",
-		"tenorSaxophone":    "ts",
-		"baritoneSaxophone": "bs",
-	}
-	return printMusicScoreUrlBase + music + saxophoneUrl + saxType[instrument]
-}
-
-func GetPrintMusicScoreTable(gd *goquery.Document) *goquery.Selection {
-	gd.Find("#footerContainer").Remove()
-	musicTable := gd.Find("tbody")
-	musicTable.Find(".thead").Remove()
-	return musicTable
+	Difficulty  string
+	ServiceName string
+	MusicName   string
+	Composer    string
+	Price       int
+	Url         string
+	Instrument  string
+	Id          string
 }
 
 func initPrintMusicScore(instrument string) *PrintMusicScore {
-	printGakufu := PrintMusicScore{}
-	var cbi *Common.BasicInfo
-	cbi = &Common.BasicInfo{
+	printGakufu := PrintMusicScore{
 		ServiceName: printMusicScore,
 		Instrument:  instrument,
+		Url:         instalmentUrl(instrument),
 	}
-	printGakufu.BasicInfo = cbi
 	return &printGakufu
 }
 
-func getTableInfo(gd *goquery.Selection, instrument string) {
+func (pms *PrintMusicScore) getTableInfo(gd *goquery.Selection) []PrintMusicScore {
+	pmss := make([]PrintMusicScore, 0)
 	gd.Find("tr").EachWithBreak(func(i int, tr *goquery.Selection) bool {
 		if tr.Is("td") {
 			return false
 		}
-		pms := initPrintMusicScore(instrument)
-		pms = pms.setInfo(tr)
+		pms.setInfo(tr)
+		pmss = append(pmss, *pms)
 		return true
 	})
+	return pmss
 }
 
 func (pms *PrintMusicScore) setInfo(gs *goquery.Selection) *PrintMusicScore {
 	path, _ := gs.Find(".title").Find("a").Attr("href")
-	pms.BasicInfo.Url = printMusicScoreDomain + path
+	pms.Url = printMusicScoreDomain + path
 	noBlank := Common.RemoveBlankStrings(gs.Find(".title").Text())
 	musicAndComposer := strings.SplitN(noBlank, "/", 2)
-	pms.BasicInfo.MusicName = musicAndComposer[0]
-	pms.BasicInfo.Composer = musicAndComposer[1]
-	pms.BasicInfo.Price = Common.GetPrice(gs.Find(".price").Text())
+	pms.MusicName = musicAndComposer[0]
+	pms.Composer = musicAndComposer[1]
+	pms.Price = Common.GetPrice(gs.Find(".price").Text())
 	pms.Difficulty = Common.RemoveBlankStrings(gs.Find(".status").Text())
-	pms.BasicInfo.Id = getId(path)
-	pms.Output()
+	pms.Id = getId(path)
 	return pms
 }
 
 func Main() {
-	fmt.Println("start")
 	insts := Common.Instruments()
 	for _, installment := range insts {
+		fmt.Println("start", "-", installment)
 		GetAllMusicScore(installment)
 	}
+	fmt.Println("end")
 
 }
 
 func GetAllMusicScore(instrument string) {
-	client := setUrl(instrument)
-	fmt.Println(" setUrl done")
-	doc := client.Get()
-	getAll(doc, client, client.Url, instrument)
-}
-
-func setUrl(instrument string) *Common.ApiClientBase {
-	url := instalmentUrl(instrument)
-	var cab *Common.ApiClientBase
-	cab = &Common.ApiClientBase{
-		Url: url,
-	}
-	return cab
+	pms := initPrintMusicScore(instrument)
+	doc := pms.Get()
+	pms.getAll(doc)
 }
 
 func instalmentUrl(instrument string) string {
@@ -133,23 +95,23 @@ func instalmentUrl(instrument string) string {
 	return instalments[instrument]
 }
 
-func getAll(doc *goquery.Document, client *Common.ApiClientBase, url string, instrument string) {
-	fmt.Println("getAll start")
+func (pms *PrintMusicScore) getAll(doc *goquery.Document) {
 	c := doc.Find(".headInfo").Find(".pageFeed-item-last").Text()
 	count := 1
 	if c != "" {
 		count, _ = strconv.Atoi(c)
 	}
-
+	pmss := make([]PrintMusicScore, 0)
 	for i := 1; i <= count; i++ {
-		client.Url = url + "p=" + strconv.Itoa(i)
-		fmt.Println(client.Url)
-		doc = client.Get()
+		pms.Url = instalmentUrl(pms.Instrument) + "p=" + strconv.Itoa(i)
+		fmt.Println(pms.Url)
+		doc = pms.Get()
 		musicTable := getPrintMusicScoreTable(doc)
-		getTableInfo(musicTable, instrument)
+		ps := pms.getTableInfo(musicTable)
+		pmss = append(pmss, ps...)
 
 	}
-	fmt.Println("getAll end")
+	output(pmss)
 }
 
 func getPrintMusicScoreTable(gd *goquery.Document) *goquery.Selection {
@@ -158,30 +120,87 @@ func getPrintMusicScoreTable(gd *goquery.Document) *goquery.Selection {
 	musicTable.Find(".thead").Remove()
 	return musicTable
 }
-func (pms *PrintMusicScore) Output() {
+func output(pmss []PrintMusicScore) {
 	file, err := os.OpenFile("test.csv", os.O_WRONLY|os.O_APPEND, 0666)
 	if err != nil {
 		//エラー処理
 		log.Fatal(err)
 	}
 	defer file.Close()
-	writer := csv.NewWriter(file)
-	var s = []string{
-		pms.BasicInfo.ServiceName,
-		pms.BasicInfo.MusicName,
-		pms.BasicInfo.Composer,
-		strconv.Itoa(pms.BasicInfo.Price),
-		pms.BasicInfo.Url,
-		pms.BasicInfo.Instrument,
-		pms.Difficulty,
-		pms.BasicInfo.Id,
+	for _, pms := range pmss {
+		writer := csv.NewWriter(file)
+		var s = []string{
+			pms.ServiceName,
+			pms.MusicName,
+			pms.Composer,
+			strconv.Itoa(pms.Price),
+			pms.Url,
+			pms.Instrument,
+			pms.Difficulty,
+			pms.Id,
+		}
+		writer.Write(s)
+		writer.Flush()
 	}
-	writer.Write(s)
-	writer.Flush()
 }
 
 func getId(path string) string {
 	path = strings.TrimRight(path, "/")
 	slice := strings.Split(path, "/")
 	return slice[len(slice)-1]
+}
+
+func (pms *PrintMusicScore) Get() *goquery.Document {
+	client := &http.Client{}
+
+	req, err := http.NewRequest("GET", pms.Url, nil)
+	if err != nil {
+		log.Fatalln(err)
+	}
+	ua := getUserAgent()
+	req.Header.Set("User-Agent", ua)
+	req.Header.Add("Accept-Language", "ja,en-US;q=0.9,en;q=0.8")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Fatalln(err)
+	}
+
+	defer resp.Body.Close()
+
+	reader := changeTextCode(resp)
+	doc, _ := goquery.NewDocumentFromReader(reader)
+	return doc
+}
+
+func getUserAgent() string {
+	slice := []string{
+		"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_13_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/69.0.3497.100 Safari/537.36",
+		"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_13_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/70.0.3538.77 Safari/537.36",
+		"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_13_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/77.0.3864.0 Safari/537.36",
+		"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/69.0.3497.100",
+		"Mozilla/5.0 (Macintosh; Intel Mac OS X 10.13; rv:62.0) Gecko/20100101 Firefox/62.0",
+		"Mozilla/5.0 (Macintosh; Intel Mac OS X 10.13; rv:67.0) Gecko/20100101 Firefox/67.0",
+		"Mozilla/5.0 (Macintosh; Intel Mac OS X 10.13; rv:68.0) Gecko/20100101 Firefox/68.0",
+		"Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:61.0) Gecko/20100101 Firefox/61.0",
+		"Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:62.0) Gecko/20100101 Firefox/62.0",
+		"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/64.0.3282.140 Safari/537.36 Edge/17.17134",
+		"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_13_6) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/12.0 Safari/605.1.15",
+		"Mozilla/5.0 (iPhone; CPU iPhone OS 12_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/12.0 Mobile/15E148 Safari/604.1",
+		"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_13_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/69.0.3497.100 Safari/537.36",
+		"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_13_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/75.0.3770.100 Safari/537.36",
+		"Mozilla/5.0 (iPhone; CPU iPhone OS 12_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) FxiOS/1.6.5b18.09.26.16 Mobile/16A366 Safari/605.1.15 _id/000002",
+	}
+	i := rand.Intn(15)
+	return slice[i]
+}
+
+func changeTextCode(res *http.Response) io.Reader {
+	buf, _ := ioutil.ReadAll(res.Body)
+
+	det := chardet.NewTextDetector()
+	detRslt, _ := det.DetectBest(buf)
+	bReader := bytes.NewReader(buf)
+	reader, _ := charset.NewReaderLabel(detRslt.Charset, bReader)
+	return reader
 }

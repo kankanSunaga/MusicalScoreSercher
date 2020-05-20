@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/aws/aws-lambda-go/lambda"
 	"github.com/saintfish/chardet"
 	"golang.org/x/net/html/charset"
 
@@ -42,18 +43,15 @@ func initPiascore(instrument string) *Piascore {
 	return &psc
 }
 
-func (psc *Piascore) setInfo(gd *goquery.Document) *[]Piascore {
+func (psc *Piascore) setInfo(gd *goquery.Document) []Piascore {
 	pscs := make([]Piascore, 0)
-
 	gd.Find(".displayed-score").EachWithBreak(func(i int, div *goquery.Selection) bool {
 		dp := psc.goToDetailPAge(div)
 		psc.setInfoInner(dp)
 		pscs = append(pscs, *psc)
 		return true
-	}
-	var cbi *[]Piascore
-	cbi = &pscs
-　	return cbi
+	})
+	return pscs
 }
 
 func (psc *Piascore) setInfoInner(gs *goquery.Document) *Piascore {
@@ -80,6 +78,10 @@ func (psc *Piascore) setPrice(gs *goquery.Document) {
 }
 
 func Main() {
+	lambda.Start(start)
+}
+
+func start() {
 	fmt.Println("start")
 	for _, installment := range instruments() {
 		fmt.Println(installment)
@@ -115,20 +117,20 @@ func (psc *Piascore) bringAllData(doc *goquery.Document) {
 	if exist {
 		count = getMaxPage(path)
 	}
-	var pscs *[]Piascore
+	pscs := make([]Piascore, 0)
 	for i := 1; i <= count; i++ {
 		psc.Url = instalmentUrl(psc.Instrument) + "page=" + strconv.Itoa(i)
 		fmt.Println(psc.Url)
 		doc = psc.Get()
-		pscs = append(pscs, psc.setInfo(doc))
+		ps := psc.setInfo(doc)
+		pscs = append(pscs, ps...)
 	}
 	output(pscs)
 }
 
-func output(pscs *[]Piascore) {
+func output(pscs []Piascore) {
 	file, err := os.OpenFile("test.csv", os.O_WRONLY|os.O_APPEND, 0666)
 	if err != nil {
-		//エラー処理
 		log.Fatal(err)
 	}
 	defer file.Close()
